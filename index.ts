@@ -11,7 +11,12 @@ type HookEvent = {
   tools?: Record<string, unknown>
 }
 
-const LOGFILE = "/home/d/.local/state/opencode/tool-drop.log"
+const stateHome = process.env.XDG_STATE_HOME || `${process.env.HOME || "/tmp"}/.local/state`
+const LOGFILE = process.env.TOOL_DROP_LOG || `${stateHome}/opencode/tool-drop.log`
+const SKIP_AGENTS = (process.env.TOOL_DROP_SKIP_AGENTS || "")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean)
 
 const say = (msg: string) => {
   try {
@@ -47,7 +52,7 @@ let reported = false
 let shapeLogged = false
 
 export async function setup(ctx: any) {
-  say(`setup start options=${JSON.stringify(ctx?.options ?? {})}`)
+  say(`setup start options=${JSON.stringify(ctx?.options ?? {})} skip=${SKIP_AGENTS.join("|") || "none"} log=${LOGFILE}`)
   const block = (ctx?.options?.block ?? {}) as Record<string, string[]>
   let agents: any[] = []
   let warned = false
@@ -107,6 +112,10 @@ export async function setup(ctx: any) {
       const names = Object.keys(event.tools)
       if (!agentID) {
         say(`hook agent EMPTY keys=${Object.keys(event).join(",")} tools=${names.length}`)
+        return
+      }
+      if (SKIP_AGENTS.some((pattern) => match(pattern, agentID))) {
+        say(`hook agent=${agentID} skipped(SKIP_AGENTS) tools=${names.length}`)
         return
       }
       const patterns = [...denyPatterns(agentID)]

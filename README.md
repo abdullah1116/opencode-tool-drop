@@ -64,13 +64,17 @@ opencode plugin add ./opencode-tool-drop
 
 ```mermaid
 flowchart TD
-    S[session.hook: context · compaction · generate] --> L[read agent list<br/>cached, refreshed every 30s]
-    L --> M[match event.agent<br/>gather deny rules with * wildcards]
+    S[session.hook: context · compaction · generate] --> L[read agent list<br/>all agents, refreshed every 30s]
+    L --> K{agent in<br/>TOOL_DROP_SKIP_AGENTS?}
+    K -->|yes| N[leave request untouched]
+    K --> M[match this agent's deny rules<br/>with * wildcards]
     M --> F[filter event.tools<br/>drop denied names]
     F --> G[log: agent · perms · deny · tools · dropped]
     G --> Z[return]
     E1[any error] --> X[fail open: log + return untouched]
 ```
+
+**No agent is hardcoded.** Every agent returned by `ctx.agent.list()` is processed; the active agent comes from the hook event, and its deny rules come from that agent's own `permissions`.
 
 - Hooks: `context`, `compaction`, `generate` (where the tools map is built)
 - Agent lookup: `ctx.agent.list()`, cached 30 s, refreshed on a timer
@@ -84,11 +88,34 @@ One line per request:
 
 ```
 ~/.local/state/opencode/tool-drop.log
-2026-11-24T21:29:20Z first-request agent=qwen-local tools=27 agentsLoaded=true
-2026-11-24T21:29:41Z hook agent=qwen-local tools=27 patterns=... dropped=none
+2026-11-24T21:38:00Z setup start options={} skip=none log=...
+2026-11-24T21:38:03Z hook agent=builder tools=24 patterns=compress|subagent dropped=compress
 ```
 
 Rotate or delete it freely; it is recreated on demand.
+
+## Environment variables
+
+| Variable | Default | Effect |
+|---|---|---|
+| `TOOL_DROP_SKIP_AGENTS` | *(empty)* | Comma-separated agent ids (or `*` globs) the plugin ignores entirely — e.g. `TOOL_DROP_SKIP_AGENTS=explore,plan*` |
+| `TOOL_DROP_LOG` | `$XDG_STATE_HOME/opencode/tool-drop.log` | Log file path |
+| `XDG_STATE_HOME` | `~/.local/state` | Base directory for the default log |
+
+Skipped agents are logged once per request as `skipped(SKIP_AGENTS)` so exclusions stay visible.
+
+## Plugin options
+
+Extra deny patterns per agent, in the plugin entry of `opencode.json`:
+
+```json
+{
+  "package": "github:abdullah1116/opencode-tool-drop",
+  "options": { "block": { "builder": ["git-push-*"] } }
+}
+```
+
+Options are merged with the agent's own `permissions` deny rules.
 
 ## Configure deny rules
 
