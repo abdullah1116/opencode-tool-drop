@@ -138,4 +138,4 @@ Per agent, in `opencode.json`:
 
 ## License
 
-All rights reserved by the author unless a license file says otherwise.
+MIT — Copyright (c) 2026 Abdullah Hasan. See [LICENSE](LICENSE).
