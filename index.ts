@@ -84,22 +84,28 @@ export async function setup(ctx: any) {
   await refresh()
   const timer = setInterval(() => void refresh(), 30_000)
 
-  const denyPatterns = (agentID: string) => {
-    const patterns = new Set<string>(block[agentID] ?? [])
+  const rulesFor = (agentID: string): Permission[] => {
+    const rules: Permission[] = []
     const info = agents.find((a: any) => a?.id === agentID)
     if (!info) {
       say(`agent NOT FOUND id=${agentID} known=${agents.map((a) => a?.id).slice(0, 12).join(",")}`)
-      return patterns
+      return rules
     }
     const perms = (info.permissions ?? info.permission ?? []) as Permission[]
-    const arr = Array.isArray(perms) ? perms : []
-    const denys = arr.filter((p) => p?.effect === "deny")
-    say(`agent=${agentID} perms=${arr.length} deny=${denys.map((p) => `${p.action}:${p.resource ?? "-"}`).join(",")}`)
-    for (const p of denys) {
-      if (p.resource && p.resource !== "*") continue
-      if (typeof p.action === "string") patterns.add(p.action)
+    const arr = (Array.isArray(perms) ? perms : []).filter((p) => p && typeof p.action === "string")
+    say(`agent=${agentID} perms=${arr.length} rules=${arr.map((p) => `${p.effect}:${p.action}:${p.resource ?? "*"}`).join(",")}`)
+    for (const p of arr) rules.push(p)
+    for (const pat of block[agentID] ?? []) rules.push({ action: pat, resource: "*", effect: "deny" })
+    return rules
+  }
+
+  const isDenied = (rules: Permission[], tool: string) => {
+    let effect: string | undefined
+    for (const r of rules) {
+      if (r.resource && r.resource !== "*") continue
+      if (match(r.action, tool)) effect = r.effect
     }
-    return patterns
+    return effect === "deny"
   }
 
   const hook = (event: HookEvent) => {
@@ -118,9 +124,9 @@ export async function setup(ctx: any) {
         say(`hook agent=${agentID} skipped(SKIP_AGENTS) tools=${names.length}`)
         return
       }
-      const patterns = [...denyPatterns(agentID)]
-      const dropped = names.filter((name) => patterns.some((pattern) => match(pattern, name)))
-      say(`hook agent=${agentID} tools=${names.length} patterns=${patterns.join("|") || "none"} dropped=${dropped.join(",") || "none"}`)
+      const rules = rulesFor(agentID)
+      const dropped = names.filter((name) => isDenied(rules, name))
+      say(`hook agent=${agentID} tools=${names.length} rules=${rules.length} dropped=${dropped.join(",") || "none"}`)
       for (const name of dropped) delete event.tools[name]
     } catch (e) {
       if (!warned) {

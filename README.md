@@ -78,7 +78,7 @@ flowchart TD
 
 - Hooks: `context`, `compaction`, `generate` (where the tools map is built)
 - Agent lookup: `ctx.agent.list()`, cached 30 s, refreshed on a timer
-- Matching: deny rules of the form `action:resource` with `*` wildcards (`compress:*` matches the `compress` tool). Only tool-wide denies — `resource: "*"` or no resource — drop a tool; a resource-scoped deny leaves the tool in place
+- Matching: permissions are an **ordered list — last match wins** (a `*` deny first, then specific allows, keeps only the allowed tools). Only tool-wide rules — `resource: "*"` or no resource — affect the schema; a resource-scoped rule (e.g. `read:src/**`) leaves tool presence untouched. Wildcards work in both fields (`compress`, `chronicler_*`).
 - **Fail-open**: every hook body is wrapped — a failure logs and returns the request untouched, never kills the model call
 - If OpenCode already removed a denied tool upstream, the log shows `dropped=none` — the filter is a safety net, not a bypass
 
