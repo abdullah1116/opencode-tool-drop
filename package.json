@@ -1,8 +1,25 @@
 {
   "name": "opencode-tool-drop",
   "version": "0.1.0",
+  "description": "Permission-aware tool schema filter for OpenCode: drops tools an agent's permissions deny before they reach the model, with an audit log.",
   "type": "module",
   "main": "index.ts",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/abdullah1116/opencode-tool-drop.git"
+  },
+  "homepage": "https://github.com/abdullah1116/opencode-tool-drop#readme",
+  "bugs": {
+    "url": "https://github.com/abdullah1116/opencode-tool-drop/issues"
+  },
+  "keywords": [
+    "opencode",
+    "opencode-plugin",
+    "llm",
+    "tool-schema",
+    "permissions",
+    "tokens"
+  ],
   "dependencies": {
     "@opencode/plugin": "latest"
   }
