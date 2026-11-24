@@ -1,0 +1,129 @@
+import { appendFileSync } from "node:fs"
+
+type Permission = {
+  action: string
+  resource?: string
+  effect: "allow" | "ask" | "deny"
+}
+
+type HookEvent = {
+  agent?: string
+  tools?: Record<string, unknown>
+}
+
+const LOGFILE = "/home/d/.local/state/opencode/tool-drop.log"
+
+const say = (msg: string) => {
+  try {
+    appendFileSync(LOGFILE, new Date().toISOString() + " " + msg + "\n")
+  } catch {}
+}
+
+const match = (pattern: string, name: string) => {
+  if (pattern === "*" || pattern === name) return true
+  if (!pattern.includes("*")) return false
+  return new RegExp("^" + pattern.replace(/[.+?^${}()|[\]\\]/g, (c) => "\\" + c).replace(/\*/g, ".*") + "$").test(name)
+}
+
+const normalize = (res: unknown): any[] => {
+  if (Array.isArray(res)) return res
+  const r = res as Record<string, unknown> | undefined
+  if (r && typeof r === "object") {
+    for (const key of ["agents", "items", "list", "results", "data"]) {
+      const v = (r as any)[key]
+      if (Array.isArray(v)) return v
+    }
+    for (const key of Object.keys(r)) {
+      const v = (r as any)[key]
+      if (Array.isArray(v) && v.length > 0 && v[0] && typeof v[0] === "object") return v
+    }
+  }
+  return []
+}
+
+export const id = "tool-drop"
+
+let reported = false
+let shapeLogged = false
+
+export async function setup(ctx: any) {
+  say(`setup start options=${JSON.stringify(ctx?.options ?? {})}`)
+  const block = (ctx?.options?.block ?? {}) as Record<string, string[]>
+  let agents: any[] = []
+  let warned = false
+
+  const refresh = async () => {
+    try {
+      const res = await ctx.agent.list()
+      if (!shapeLogged) {
+        shapeLogged = true
+        const raw = JSON.stringify(res) ?? "undefined"
+        say(`list shape type=${Array.isArray(res) ? "array" : typeof res} keys=${Object.keys(res ?? {}).join("|")} raw=${raw.slice(0, 500)}`)
+      }
+      const list = normalize(res)
+      if (list.length > 0) {
+        agents = list
+        if (!reported) {
+          reported = true
+          const first = list[0]
+          say(`agents=${list.length} ids=${list.slice(0, 6).map((a: any) => a?.id ?? a?.name ?? "?").join(",")} firstKeys=${Object.keys(first ?? {}).join("|")}`)
+        }
+      } else {
+        say(`agents EMPTY raw=${JSON.stringify(res)?.slice(0, 300)}`)
+      }
+    } catch (e) {
+      say(`agent.list FAILED ${String(e)}`)
+    }
+  }
+
+  await refresh()
+  const timer = setInterval(() => void refresh(), 30_000)
+
+  const denyPatterns = (agentID: string) => {
+    const patterns = new Set<string>(block[agentID] ?? [])
+    const info = agents.find((a: any) => a?.id === agentID)
+    if (!info) {
+      say(`agent NOT FOUND id=${agentID} known=${agents.map((a) => a?.id).slice(0, 12).join(",")}`)
+      return patterns
+    }
+    const perms = (info.permissions ?? info.permission ?? []) as Permission[]
+    const arr = Array.isArray(perms) ? perms : []
+    const denys = arr.filter((p) => p?.effect === "deny")
+    say(`agent=${agentID} perms=${arr.length} deny=${denys.map((p) => `${p.action}:${p.resource ?? "-"}`).join(",")}`)
+    for (const p of denys) {
+      if (p.resource && p.resource !== "*") continue
+      if (typeof p.action === "string") patterns.add(p.action)
+    }
+    return patterns
+  }
+
+  const hook = (event: HookEvent) => {
+    try {
+      if (!event?.tools) {
+        say("hook called with NO tools")
+        return
+      }
+      const agentID = String(event?.agent ?? "")
+      const names = Object.keys(event.tools)
+      if (!agentID) {
+        say(`hook agent EMPTY keys=${Object.keys(event).join(",")} tools=${names.length}`)
+        return
+      }
+      const patterns = [...denyPatterns(agentID)]
+      const dropped = names.filter((name) => patterns.some((pattern) => match(pattern, name)))
+      say(`hook agent=${agentID} tools=${names.length} patterns=${patterns.join("|") || "none"} dropped=${dropped.join(",") || "none"}`)
+      for (const name of dropped) delete event.tools[name]
+    } catch (e) {
+      if (!warned) {
+        warned = true
+        say(`hook ERROR ${String(e)}`)
+      }
+    }
+  }
+
+  for (const kind of ["context", "compaction", "generate"]) await ctx.session.hook(kind, hook)
+  say("hooks registered: context, compaction, generate")
+  return () => clearInterval(timer)
+}
+
+export default { id, setup }
